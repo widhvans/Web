@@ -1,4 +1,3 @@
-
 import logging
 import threading
 import asyncio
@@ -25,8 +24,13 @@ client = OpenAI(
 
 @app.route('/')
 def index():
-    """Serves the beautiful HTML Chat Interface."""
+    """Serves the HTML Chat Interface."""
     return render_template('index.html')
+
+@app.route('/health')
+def health():
+    """Health check for Koyeb."""
+    return "OK", 200
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
@@ -38,7 +42,7 @@ def chat():
         return jsonify({"error": "No message provided"}), 400
 
     try:
-        # call Groq API
+        # Call Groq API using the model from Config
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -50,7 +54,8 @@ def chat():
                     "content": user_message,
                 }
             ],
-            model="llama3-8b-8192", # Using Llama 3 on Groq for speed
+            # USING THE MODEL FROM CONFIG
+            model=Config.GROQ_MODEL_NAME, 
             temperature=0.7,
             max_tokens=1024,
         )
@@ -80,23 +85,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
+def run_flask():
+    """Runs the Flask server in a separate thread."""
+    print(f"Starting Web Server on port {Config.PORT}...")
+    # use_reloader=False is crucial when running in a thread
+    app.run(host='0.0.0.0', port=Config.PORT, use_reloader=False)
+
 def run_telegram_bot():
-    """Runs the Telegram bot in a separate thread."""
+    """Runs the Telegram bot in the MAIN thread."""
     application = ApplicationBuilder().token(Config.BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     
     print("Telegram Bot is polling...")
-    # Use run_polling directly within the thread
-    asyncio.set_event_loop(asyncio.new_event_loop())
     application.run_polling()
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    # Start Telegram Bot in a background thread so it doesn't block Flask
-    bot_thread = threading.Thread(target=run_telegram_bot)
-    bot_thread.start()
+    # 1. Start Flask in a Background Thread
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True # Ensures thread dies when main program exits
+    flask_thread.start()
 
-    # Start Flask Server
-    print(f"Starting Web Server on port {Config.PORT}...")
-    app.run(host='0.0.0.0', port=Config.PORT)
-  
+    # 2. Start Telegram Bot in the Main Thread (Fixes the Signal Error)
+    run_telegram_bot()
+    
