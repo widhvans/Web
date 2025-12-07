@@ -7,16 +7,18 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from openai import OpenAI
 from config import Config
 
-# --- Setup Logging ---
+# --- 1. Setup Logging ---
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
-# --- Flask Web App Setup ---
+# --- 2. Flask Web App Setup ---
 app = Flask(__name__)
 
 # Initialize Groq Client
+# We use the keys from your config.py file
 client = OpenAI(
     api_key=Config.GROQ_API_KEY,
     base_url="https://api.groq.com/openai/v1",
@@ -24,12 +26,15 @@ client = OpenAI(
 
 @app.route('/')
 def index():
-    """Serves the HTML Chat Interface."""
+    """Serves the beautiful HTML Chat Interface."""
     return render_template('index.html')
 
 @app.route('/health')
 def health():
-    """Health check for Koyeb."""
+    """
+    Health check for Koyeb.
+    Koyeb pings this to ensure the app is running.
+    """
     return "OK", 200
 
 @app.route('/api/chat', methods=['POST'])
@@ -42,7 +47,8 @@ def chat():
         return jsonify({"error": "No message provided"}), 400
 
     try:
-        # Call Groq API using the model from Config
+        # Call Groq API
+        # It uses the model defined in your config.py (openai/gpt-oss-120b)
         chat_completion = client.chat.completions.create(
             messages=[
                 {
@@ -54,7 +60,6 @@ def chat():
                     "content": user_message,
                 }
             ],
-            # USING THE MODEL FROM CONFIG
             model=Config.GROQ_MODEL_NAME, 
             temperature=0.7,
             max_tokens=1024,
@@ -64,14 +69,16 @@ def chat():
         return jsonify({"reply": bot_reply})
 
     except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"error": "Something went wrong with the AI."}), 500
+        logger.error(f"Groq API Error: {e}")
+        # If the model is decommissioned or key is wrong, this will print in logs
+        return jsonify({"error": str(e)}), 500
 
-# --- Telegram Bot Logic ---
+# --- 3. Telegram Bot Logic ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends the Start Chat button."""
     user_first_name = update.effective_user.first_name
     
+    # Create the button linking to your Web App
     keyboard = [
         [InlineKeyboardButton("Start Chat 💬", url=Config.WEBAPP_URL)]
     ]
@@ -79,8 +86,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome_text = (
         f"Hello, {user_first_name}! 👋\n\n"
-        "I am your AI Assistant powered by Groq.\n"
-        "Click the button below to start a fast, intelligent conversation on our secure web interface."
+        "I am your AI Assistant powered by Groq (120B Model).\n"
+        "Click the button below to start a conversation."
     )
     
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
@@ -88,7 +95,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def run_flask():
     """Runs the Flask server in a separate thread."""
     print(f"Starting Web Server on port {Config.PORT}...")
-    # use_reloader=False is crucial when running in a thread
+    # use_reloader=False is mandatory when running Flask in a thread
     app.run(host='0.0.0.0', port=Config.PORT, use_reloader=False)
 
 def run_telegram_bot():
@@ -97,15 +104,18 @@ def run_telegram_bot():
     application.add_handler(CommandHandler("start", start))
     
     print("Telegram Bot is polling...")
+    # This blocks the main thread, which is what we want for signals to work
     application.run_polling()
 
-# --- Main Execution ---
+# --- 4. Main Execution ---
 if __name__ == '__main__':
-    # 1. Start Flask in a Background Thread
+    # A. Start Flask in a Background Thread
+    # We set daemon=True so it shuts down when the main program stops
     flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True # Ensures thread dies when main program exits
+    flask_thread.daemon = True 
     flask_thread.start()
 
-    # 2. Start Telegram Bot in the Main Thread (Fixes the Signal Error)
+    # B. Start Telegram Bot in the Main Thread
+    # This prevents the "set_wakeup_fd" error
     run_telegram_bot()
     
