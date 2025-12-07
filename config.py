@@ -12,4 +12,5 @@ class Config:
     
     # Server Port (Koyeb uses 8000 by default)
     PORT = int(os.environ.get("PORT", 8080))
-  
+
+    GROQ_MODEL_NAME = "llama3-8b-8192"
